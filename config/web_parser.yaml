@@ -1,0 +1,7 @@
+web_scraping:
+  start_page: "https://mta.ua/telefoni-ta-smartfoni"
+  product_item_selector: ".products__item_caption"
+  product_link_selector: "a[href]"
+  product_title_selector: "a[title]"
+  product_price_wrapper_selector: ".products__item_price_wrapper > div"
+  output_file_path: "./output/data.json"
