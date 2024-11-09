@@ -10,3 +10,13 @@ default:
   additional_archive_files:
     - "./logs/scraping.log"
     - "./config/web_parser.yaml"
+
+  email:
+    from: "noreply.oldschoolgym@gmail.com"
+    smtp:
+      address: "smtp.gmail.com"
+      port: 587
+      user_name: "noreply.oldschoolgym@gmail.com"
+      password: "sjafvbldurpaupxn"
+      authentication: :plain
+      domain: "gmail.com"    
