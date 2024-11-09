@@ -1,48 +1,29 @@
 require 'yaml'
-require 'erb'
-require 'json'
 
-class AppConfigLoader
-  SYSTEM_LIBS = ['date']
-
-  def self.config(default_config_path, config_directory)
-    config_data = load_default_config(default_config_path)
-    Dir.glob(File.join(config_directory, '*.yaml')).each do |file|
-      config_data.merge!(load_config(file))
-    end
-
-    if block_given?
-      yield config_data
-    end
-
-    config_data
-  end
-
-  def self.pretty_print_config_data(config_data)
-    puts JSON.pretty_generate(config_data)
-  end
-
-  def self.load_libs(libs_directory)
-    SYSTEM_LIBS.each { |lib| require lib }
-
-    loaded_files = []
-    Dir.glob(File.join(libs_directory, '*.rb')).each do |file|
-      next if loaded_files.include?(file)
-
-      require_relative file
-      loaded_files << file
+module MyApplicationCoolPeppers
+  class AppConfigLoader
+    def self.config(config_file_path, config_directory)
+      begin
+        config = YAML.load_file(config_file_path)
+        
+        Dir[File.join(config_directory, '*.yaml')].each do |file|
+          next if file == config_file_path # Skip the main config file
+          
+          config_name = File.basename(file, '.yaml')
+          additional_config = YAML.load_file(file)
+          config[config_name] = additional_config
+        end
+        
+        config
+      rescue Errno::ENOENT => e
+        raise ConfigurationError, "Configuration file not found: #{e.message}"
+      rescue Psych::SyntaxError => e
+        raise ConfigurationError, "Invalid YAML syntax in configuration: #{e.message}"
+      rescue StandardError => e
+        raise ConfigurationError, "Error loading configuration: #{e.message}"
+      end
     end
   end
 
-  private
-
-  def self.load_default_config(file_path)
-    config_content = File.read(file_path)
-    erb_parsed_content = ERB.new(config_content).result
-    YAML.safe_load(erb_parsed_content)
-  end
-
-  def self.load_config(file_path)
-    YAML.load_file(file_path)
-  end
+  class ConfigurationError < StandardError; end
 end

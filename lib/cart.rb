@@ -1,7 +1,10 @@
 require 'json'
 require 'csv'
 require 'yaml'
+require 'httparty'
 require_relative 'logger_manager'
+require_relative 'database_connector'
+require_relative 'data_saver'
 
 module MyApplicationCoolPeppers
   class Cart
@@ -17,56 +20,27 @@ module MyApplicationCoolPeppers
       MyApplicationCoolPeppers::LoggerManager.log_processed_file("Added item: #{item}")
     end
 
-    def remove_item(item)
-      if @items.delete(item)
-        MyApplicationCoolPeppers::LoggerManager.log_processed_file("Removed item: #{item}")
-      else
-        MyApplicationCoolPeppers::LoggerManager.log_error("Item not found: #{item}")
-      end
-    end
-
-    def delete_items
-      @items.clear
-      MyApplicationCoolPeppers::LoggerManager.log_processed_file("Deleted all items from the collection")
-    end
-
-    def parameterize(string)
-      string.downcase.gsub(/[^a-z0-9]+/, '_').chomp('_')
-    end
-
-    def show_all_items
-      puts "All items in collection:"
-      @items.each { |item| puts item }
-    end
-
-    def save_to_file(file_path)
-      File.open(file_path, 'w') do |file|
-        file.puts @items.map(&:to_s)
-      end
-      MyApplicationCoolPeppers::LoggerManager.log_processed_file("Saved items to text file: #{file_path}")
-    end
-
     def save_to_json(file_path)
       File.open(file_path, 'w') do |file|
         file.write(JSON.pretty_generate(@items.map(&:to_h)))
       end
-      MyApplicationCoolPeppers::LoggerManager.log_processed_file("Saved items to JSON file: #{file_path}")
+      MyApplicationCoolPeppers::LoggerManager.log_processed_file("Saved cart to JSON: #{file_path}")
     end
 
     def save_to_csv(file_path)
       CSV.open(file_path, 'w') do |csv|
-        csv << ['Link', 'Title', 'Price', 'Image Path', 'Cashback']
+        csv << ['Link', 'Title', 'Price', 'Image Path', 'Cashback', 'Scraped At']
         @items.each do |item|
-          csv << [item.link, item.title, item.price, item.image_path, item.cashback]
+          csv << [item.link, item.title, item.price, item.image_path, item.cashback, item.scraped_at]
         end
       end
-      MyApplicationCoolPeppers::LoggerManager.log_processed_file("Saved items to CSV file: #{file_path}")
+      MyApplicationCoolPeppers::LoggerManager.log_processed_file("Saved cart to CSV: #{file_path}")
     end
 
     def save_to_yml(directory)
       Dir.mkdir(directory) unless Dir.exist?(directory)
       @items.each do |item|
-        file_name = parameterize(item.title)
+        file_name = item.title.downcase.gsub(/[^a-z0-9]+/, '_').chomp('_')
         File.open("#{directory}/#{file_name}.yml", 'w') do |file|
           file.write(item.to_h.to_yaml)
         end
@@ -74,61 +48,30 @@ module MyApplicationCoolPeppers
       end
     end
 
-    def generate_test_items(count)
-      count.times do
-        add_item(Item.generate_fake)
+    def save_images(directory, limit = 10)
+      Dir.mkdir(directory) unless Dir.exist?(directory)
+      @items.first(limit).each do |item|
+        next unless item.image_path
+
+        image_data = HTTParty.get(item.image_path).body
+        image_name = item.title.downcase.gsub(/[^a-z0-9]+/, '_').chomp('_')
+        image_path = File.join(directory, "#{image_name}.jpg")
+        
+        File.open(image_path, 'wb') { |file| file.write(image_data) }
+        MyApplicationCoolPeppers::LoggerManager.log_processed_file("Saved image for item #{item.title} to #{image_path}")
       end
-      MyApplicationCoolPeppers::LoggerManager.log_processed_file("Generated #{count} test items")
     end
 
-    include Enumerable
-
-    def each(&block)
-      @items.each(&block)
+    def save_to_mongodb()
+      data = @items.map(&:to_h)
+      DatabaseConnector.save_to_mongodb(data)
+      MyApplicationCoolPeppers::LoggerManager.log_processed_file("Saved cart to MongoDB")
     end
 
-    def map(&block)
-      @items.map(&block)
-    end
-
-    def select(&block)
-      @items.select(&block)
-    end
-
-    def reject(&block)
-      @items.reject(&block)
-    end
-
-    def find(&block)
-      @items.find(&block)
-    end
-
-    def reduce(initial = nil, &block)
-      @items.reduce(initial, &block)
-    end
-
-    def all?(&block)
-      @items.all?(&block)
-    end
-
-    def any?(&block)
-      @items.any?(&block)
-    end
-
-    def none?(&block)
-      @items.none?(&block)
-    end
-
-    def count(&block)
-      @items.count(&block)
-    end
-
-    def sort(&block)
-      @items.sort(&block)
-    end
-
-    def uniq(&block)
-      @items.uniq(&block)
+    def save_to_sqlite(database_path)
+      data = @items.map(&:to_h)
+      DatabaseConnector.save_to_sqlite(data, database_path)
+      MyApplicationCoolPeppers::LoggerManager.log_processed_file("Saved cart to SQLite database: #{database_path}")
     end
   end
 end
