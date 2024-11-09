@@ -3,3 +3,10 @@ default:
   config_dir: config
   yaml_dir: config/yaml_config
   media_dir: media
+  output_directory: "./output"
+  archive_directory: "./archive"
+  archive_enabled: true
+  send_archive_enabled: true
+  additional_archive_files:
+    - "./logs/scraping.log"
+    - "./config/web_parser.yaml"
