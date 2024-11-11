@@ -33,40 +33,45 @@ module MyApplicationCoolPeppers
 
     def fetch_products(url, max_pages = 3)
       page_number = 1
-      all_products = []
+      queue = Queue.new
 
       LoggerManager.log_info("Starting to fetch products from #{url}")
 
-      loop do
-        current_page_url = "#{url}/page=#{page_number}"
-        LoggerManager.log_info("Fetching products from: #{current_page_url}")
+      threads = []
 
-        begin
-          response = HTTParty.get(current_page_url)
-          
-          unless response.success?
-            LoggerManager.log_error("Failed to fetch page #{page_number}. Status code: #{response.code}")
-            break
+      for _ in (1..max_pages)
+        threads << Thread.new do
+          current_page_url = "#{url}/page=#{page_number}"
+          LoggerManager.log_info("Fetching products from: #{current_page_url}")
+
+          begin
+            response = HTTParty.get(current_page_url)
+            
+            unless response.success?
+              LoggerManager.log_error("Failed to fetch page #{page_number}. Status code: #{response.code}")
+              break
+            end
+
+            
+            products = parse_products(response.body)
+            
+            queue.push(products)
+            
+            LoggerManager.log_info("Successfully parsed #{products.size} products from page #{page_number}")
+
+          rescue HTTParty::Error => e
+            LoggerManager.log_error("HTTP request failed: #{e.message}")
+          rescue StandardError => e
+            LoggerManager.log_error("Error fetching products: #{e.message}")
           end
-
-          products = parse_products(response.body)
-          break if products.empty?
-
-          all_products.concat(products)
-          LoggerManager.log_info("Successfully parsed #{products.size} products from page #{page_number}")
-
-          break if page_number > 1 && products.size == all_products[0...all_products.size].size
-
-          page_number += 1
-          break if page_number > max_pages
-
-        rescue HTTParty::Error => e
-          LoggerManager.log_error("HTTP request failed: #{e.message}")
-          break
-        rescue StandardError => e
-          LoggerManager.log_error("Error fetching products: #{e.message}")
-          break
         end
+      end
+
+      threads.each(&:join)
+      all_products = []
+
+      while(!queue.empty?)
+        all_products.concat(queue.pop(true))
       end
 
       LoggerManager.log_info("Finished fetching products. Total products: #{all_products.size}")
