@@ -31,3 +31,7 @@ build-iPhoneSimulator/
 .rvmrc
 
 /output/
+
+*.zip
+
+/logs/

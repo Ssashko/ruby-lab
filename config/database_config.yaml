@@ -2,7 +2,7 @@ database_config:
   database_type: sqlite
 
   sqlite_database:
-    db_file: C:\Users\kingl\RubyDatabase.db
+    db_file: C:\Users\maria\test.db
     timeout: 5000
     pool_size: 5
 
