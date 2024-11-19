@@ -2,6 +2,8 @@ require 'httparty'
 require 'nokogiri'
 require 'json'
 require 'fileutils'
+require 'sidekiq'
+require 'redis'
 
 module MyApplicationCoolPeppers
   class ProductScraper
@@ -31,60 +33,98 @@ module MyApplicationCoolPeppers
 
     private
 
-    def fetch_products(url, max_pages = 3)
-      page_number = 1
-      queue = Queue.new
-
+    def fetch_products(url, page_number = 3)
+      redis = Redis.new
+      redis.flushdb # Clear any leftover data from previous runs
       LoggerManager.log_info("Starting to fetch products from #{url}")
 
-      threads = []
-
-      for _ in (1..max_pages)
-        threads << Thread.new do
-          current_page_url = "#{url}/page=#{page_number}"
-          LoggerManager.log_info("Fetching products from: #{current_page_url}")
-
-          begin
-            response = HTTParty.get(current_page_url)
-            
-            unless response.success?
-              LoggerManager.log_error("Failed to fetch page #{page_number}. Status code: #{response.code}")
-              break
-            end
-
-            
-            products = parse_products(response.body)
-            
-            queue.push(products)
-            
-            LoggerManager.log_info("Successfully parsed #{products.size} products from page #{page_number}")
-
-          rescue HTTParty::Error => e
-            LoggerManager.log_error("HTTP request failed: #{e.message}")
-          rescue StandardError => e
-            LoggerManager.log_error("Error fetching products: #{e.message}")
-          end
-        end
+      jids = []
+      for i in 1..page_number
+        jid = ProductScraperWorker.perform_async(url, i)
+        jids << jid
       end
 
-      threads.each(&:join)
-      all_products = []
+      loop do
+        done = jids.all? { |jid| redis.get("job:#{jid}:done") }
+        break if done
+        sleep(1)
+      end
 
-      while(!queue.empty?)
-        all_products.concat(queue.pop(true))
+      all_products = []
+      for i in 1..page_number
+        key = "products:#{i}"
+        products_json = redis.get(key)
+        next unless products_json
+
+        all_products.concat(JSON.parse(products_json))
       end
 
       LoggerManager.log_info("Finished fetching products. Total products: #{all_products.size}")
       all_products
     end
 
+    def save_to_json(products)
+      return if products.empty?
+
+      output_path = @config.dig('web_scraping', 'output_file_path') || './output/data.json'
+      
+      begin
+        products_json = JSON.pretty_generate(products)
+        File.write(output_path, products_json)
+        LoggerManager.log_info("Successfully saved #{products.size} products to #{output_path}")
+      rescue StandardError => e
+        LoggerManager.log_error("Error saving to JSON: #{e.message}")
+      end
+    end
+
+    def ensure_output_directory
+      output_path = @config.dig('web_scraping', 'output_file_path') || './output/data.json'
+      dir_path = File.dirname(output_path)
+      
+      unless Dir.exist?(dir_path)
+        FileUtils.mkdir_p(dir_path)
+        LoggerManager.log_info("Created output directory: #{dir_path}")
+      end
+    end
+  end
+
+  class ProductScraperWorker
+    include Sidekiq::Worker
+
+    def perform(url, page_number)
+      redis = Redis.new
+      LoggerManager.log_info("Starting to fetch products from #{url}")
+
+      current_page_url = "#{url}/page=#{page_number}"
+      LoggerManager.log_info("Fetching products from: #{current_page_url}")
+
+      begin
+        response = HTTParty.get(current_page_url)
+        
+        unless response.success?
+          LoggerManager.log_error("Failed to fetch page #{page_number}. Status code: #{response.code}")
+          return
+        end
+
+        products = parse_products(response.body)
+        redis.set("products:#{page_number}", products.to_json)
+        redis.set("job:#{jid}:done", true)
+
+        LoggerManager.log_info("Successfully parsed #{products.size} products from page #{page_number}")
+      rescue HTTParty::Error => e
+        LoggerManager.log_error("HTTP request failed: #{e.message}")
+      rescue StandardError => e
+        LoggerManager.log_error("Error fetching products: #{e.message}")
+      end
+    end
+
+    private
+
     def parse_products(body)
       parsed_page = Nokogiri::HTML(body)
       products = []
       
-      selectors = @config['web_scraping']
       product_items = parsed_page.css('.products__item_inner')
-    
       product_items.each do |item|
         begin
           product_data = extract_product_data(item)
@@ -129,30 +169,6 @@ module MyApplicationCoolPeppers
         image_path = image_element['data-src']
       end
       image_path
-    end
-
-    def save_to_json(products)
-      return if products.empty?
-
-      output_path = @config.dig('web_scraping', 'output_file_path') || './output/data.json'
-      
-      begin
-        products_json = JSON.pretty_generate(products)
-        File.write(output_path, products_json)
-        LoggerManager.log_info("Successfully saved #{products.size} products to #{output_path}")
-      rescue StandardError => e
-        LoggerManager.log_error("Error saving to JSON: #{e.message}")
-      end
-    end
-
-    def ensure_output_directory
-      output_path = @config.dig('web_scraping', 'output_file_path') || './output/data.json'
-      dir_path = File.dirname(output_path)
-      
-      unless Dir.exist?(dir_path)
-        FileUtils.mkdir_p(dir_path)
-        LoggerManager.log_info("Created output directory: #{dir_path}")
-      end
     end
   end
 end

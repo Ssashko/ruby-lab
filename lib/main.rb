@@ -16,7 +16,6 @@ begin
     run_save_to_json: 1,
     run_save_to_yaml: 1,
     run_save_to_sqlite: 1,
-    run_save_to_mongodb: 1
   })
   
   engine.run
