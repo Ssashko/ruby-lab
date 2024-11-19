@@ -55,8 +55,7 @@ module MyApplicationCoolPeppers
         key = "products:#{i}"
         products_json = redis.get(key)
         next unless products_json
-
-        all_products.concat(JSON.parse(products_json))
+        all_products.concat(JSON.parse(products_json, symbolize_names: true))
       end
 
       LoggerManager.log_info("Finished fetching products. Total products: #{all_products.size}")
@@ -93,16 +92,16 @@ module MyApplicationCoolPeppers
 
     def perform(url, page_number)
       redis = Redis.new
-      LoggerManager.log_info("Starting to fetch products from #{url}")
+      Sidekiq.logger.info("Starting to fetch products from #{url}")
 
       current_page_url = "#{url}/page=#{page_number}"
-      LoggerManager.log_info("Fetching products from: #{current_page_url}")
+      Sidekiq.logger.info("Fetching products from: #{current_page_url}")
 
       begin
         response = HTTParty.get(current_page_url)
         
         unless response.success?
-          LoggerManager.log_error("Failed to fetch page #{page_number}. Status code: #{response.code}")
+          Sidekiq.logger.error("Failed to fetch page #{page_number}. Status code: #{response.code}")
           return
         end
 
@@ -110,11 +109,11 @@ module MyApplicationCoolPeppers
         redis.set("products:#{page_number}", products.to_json)
         redis.set("job:#{jid}:done", true)
 
-        LoggerManager.log_info("Successfully parsed #{products.size} products from page #{page_number}")
+        Sidekiq.logger.info("Successfully parsed #{products.size} products from page #{page_number}")
       rescue HTTParty::Error => e
-        LoggerManager.log_error("HTTP request failed: #{e.message}")
+        Sidekiq.logger.error("HTTP request failed: #{e.message}")
       rescue StandardError => e
-        LoggerManager.log_error("Error fetching products: #{e.message}")
+        Sidekiq.logger.error("Error fetching products: #{e.message}")
       end
     end
 
@@ -130,7 +129,7 @@ module MyApplicationCoolPeppers
           product_data = extract_product_data(item)
           products << product_data if product_data
         rescue StandardError => e
-          LoggerManager.log_error("Error parsing product: #{e.message}")
+          Sidekiq.logger.error("Error parsing product: #{e.message}")
           next
         end
       end
