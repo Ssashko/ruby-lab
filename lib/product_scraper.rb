@@ -35,7 +35,7 @@ module MyApplicationCoolPeppers
 
     def fetch_products(url, page_number = 3)
       redis = Redis.new
-      redis.flushdb # Clear any leftover data from previous runs
+      redis.flushdb
       LoggerManager.log_info("Starting to fetch products from #{url}")
 
       jids = []
